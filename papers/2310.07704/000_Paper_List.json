@@ -1,0 +1,31 @@
+{
+    "2310.07704": {
+        "paper_id": "2310.07704",
+        "abs_url": "https://arxiv.org/abs/2310.07704",
+        "pdf_url": "https://arxiv.org/pdf/2310.07704.pdf",
+        "supp_url": null,
+        "src_website": "ArXiv",
+        "download_name": "2310.07704_Ferret_Refer_and_Ground_Anything_Anywhere_at_Any_Granularity.pdf",
+        "title": "Ferret: Refer and Ground Anything Anywhere at Any Granularity",
+        "year": null,
+        "paper_venue": null,
+        "authors": [
+            "Haoxuan You",
+            "Haotian Zhang",
+            "Zhe Gan",
+            "Xianzhi Du",
+            "Bowen Zhang",
+            "Zirui Wang",
+            "Liangliang Cao",
+            "Shih-Fu Chang",
+            "Yinfei Yang"
+        ],
+        "abstract": "",
+        "comments": "30 pages, 10 figures. Code/Project Website: this https URL",
+        "official_code_urls": [
+            "https://github.com/apple/ml-ferret"
+        ],
+        "pwc_page_url": "https://paperswithcode.com/paper/ferret-refer-and-ground-anything-anywhere-at",
+        "bibtex": "@misc{you2023ferret,\n      title={Ferret: Refer and Ground Anything Anywhere at Any Granularity}, \n      author={Haoxuan You and Haotian Zhang and Zhe Gan and Xianzhi Du and Bowen Zhang and Zirui Wang and Liangliang Cao and Shih-Fu Chang and Yinfei Yang},\n      year={2023},\n      eprint={2310.07704},\n      archivePrefix={arXiv},\n      primaryClass={cs.CV}\n}"
+    }
+}
