@@ -1,0 +1,156 @@
+[MISSING_PAGE_FAIL:1]
+
+as an extended training stage of the unsupervised generative pretraining. With properly designed pre-text tasks, it aims to enhance LLMs with the capacity to generate text embeddings for the semantic representation of global context.
+
+Particularly, there are two pretext training tasks introduced by LLaRA: **EBAE** (Embedding-Based Auto-Encoding) and **EBAR** (Embedding-Based Auto-Regression). In EBAE, the LLM is prompted to generate the text embeddings, which can be used to predict the tokens for the _input sentence itself_. While with EBAR, the LLM is prompted to generate the text embeddings, which can be used to predict the tokens for the _next sentence_. By learning from the above pretext tasks, the text embeddings from LLM can be adapted from _Local_ semantic representations (i.e. prediction for the next tokens) to _Global_ semantic representations (i.e. prediction for the sentence-level features). And with the two different prompt templates, the LLM's embedding capability can be differentiated to handle the diverse semantic matching scenarios, e.g., similarity search (using EBAE's prompt) and question answering (using EBAR's prompt).
+
+In LLaRA, the predictions of sentence-level features are made by the linear projection of the LLM's output embeddings, where no extra decoding components are needed. Therefore, LLaRA can be directly realized on top of the existing generative pretraining pipeline, and it results in an extremely competitive training efficiency. Besides, there is no need to collect any labeled data because LLaRA is performed purely based on the plain corpora.
+
+We apply LLaRA for the adaptation of LLaMA-2-7B (Touvron et al., 2023) with the Wikipedia corpus, where it achieves a notable improvement of the LLM's retrieval quality. After the common fine-tuning operations, the well-adapted model results in the state-of-the-art performances on a variety of evaluation scenarios, such as the passage and document retrieval on MSMARCO (Nguyen et al., 2016), and the zero-shot retrieval on BEIR benchmark (Thakur et al., 2021).
+
+To summarize, we make the following technical contributions in this work. 1) We propose LLaRA, which is the first research work to adapt LLMs for the dense retrieval application. 2) LLaRA is designed to be simple but effective. By performing the two pretext tasks, EBAE and EBAR, on unlabeled data, LLaRA substantially improves the LLM's retrieval capability. 3) The pre-training and fine-tuning LLMs will take a huge cost. To facilitate the future research in this area, our model and source code will be made publicly available.
+
+## 2 Related Works
+
+Dense retrieval is to represent query and document as embeddings within the same latent space, where relevant documents can be retrieved for the query based on the embedding similarity. Nowadays, it was widely utilized in many important real-world applications, such as web search, question answering, and conversational systems (Karpukhin et al., 2020; Xiong et al., 2020). Dense retrieval's accuracy is determined by the quality of its embeddings, where the backbone encoder is a decisive
+
+Figure 1: Framework of LLaRA. The LLM is prompted to generate two text embeddings. One is for EBAE (green), where the original sentence is predicted. The other one is for EBAR (blue), where the next sentence is predicted.
+
+factor for the learning of discriminative embeddings. In the past few years, pre-trained language models (PLMs), like BERT Devlin et al. (2019), RoBERTa Liu et al. (2019), T5 Raffel et al. (2020), were widely used for the encoding of query and documents. Thanks to the large-scale pre-training and the transformer-based architecture, PLMs were able to produce fine-grained semantic representation for the input text. Besides, it was also found that with the expanded model and training scale, and the improvement of pre-training method, the accuracy and universality of the PLM-based dense retrieval can be further improved. Ni et al. (2021); Izacard et al. (2021); Wang et al. (2022); Xiao et al. (2023); Gao and Callan (2021); Liu and Shao (2022); Liu et al. (2023); Wang et al. (2022).
+
+Following the same spirit, it is a natural move to leverage LLMs for the continual scaling up of backbone encoder. The utilization of LLMs is promising in many ways. Notably, it can substantially contribute to the modeling of complex query and document considering LLMs' strong semantic understanding capability Brown et al. (2020); Chowdhery et al. (2023); Touvron et al. (2023). Besides, it presents a direct foundation to build document-level retrievers, given the dramatically expanded context length of LLMs. It can also benefit the learning of multi-task embedding model because of LLMs' unprecedented universality and instruction following capability Wei et al. (2021); Chung et al. (2022). Recently, there have been several works which made preliminary efforts on applying LLMs as the backbone encoder for dense retrieval Muennighoff (2022); Neelakantan et al. (2022); Ma et al. (2023); Zhang et al. (2023). However, the existing methods simply made direct use of LLMs. Because of the big discrepancy between text generation and text embedding tasks, LLMs' potential can be severely unexploited. In fact, it remains to study how to adapt LLM as a better foundation model for dense retrieval's application.
+
+## 3 Methodology
+
+### Preliminary
+
+Dense retrieval utilizes a text embedding model to produce the query and document's embedding: \(\mathbf{e}_{q}\) and \(\mathbf{e}_{d}\). The relevance of query and document is reflected by their embedding similarity: \(\langle\mathbf{e}_{q},\mathbf{e}_{d}\rangle\). As such, the relevant documents for the query (\(D_{q}\)) can be retrieved via the ANN search within the embedding space: \(D_{q}\leftarrow\text{Top-}k(\{d:\langle\mathbf{e}_{q},\mathbf{e}_{d}\rangle|D\})\).
+
+The pre-trained language models used to be the backbone encoder for the embedding model. Take BERT as an example. The input text is tokenized as the sequence \(T\): [CLS], t1,..., tN, [EOS]. Then, the tokenized sequence is encoded by BERT, where the output embeddings are integrated as the text embedding. There are two common options to perform the integration: [CLS], or mean-pooling:
+
+\[\mathbf{e}_{t}\leftarrow\text{BERT}(T)[\text{CLS}], \tag{1}\] \[\mathbf{e}_{t}\leftarrow\text{AVG}\big{(}\text{BERT}(T)\big{)}. \tag{2}\]
+
+When using large language models (LLMs) as the backbone encoder, the text embedding needs to be generated in a different way. Given that the existing LLMs mainly adopt the decoder-only architecture Brown et al. (2020); Chowdhery et al. (2023); Touvron et al. (2023), the global context can only be acquired by tokens at the end of the input sequence. Therefore, the output embedding about the special token \(\langle\backslash\textsc{s}\rangle\) or [EOS] is utilized as the text embedding Zhang et al. (2023); Ma et al. (2023). Taking LLaMA as the example, we have the following updated form of text embedding:
+
+\[\mathbf{e}_{t}\leftarrow\text{LLaMA}(T)[\langle\backslash\textsc{s}\rangle]. \tag{3}\]
+
+### LLaRA
+
+Although the last token in LLM can attend to the entire context given the decoder-only architecture, its output embedding is not a well-suited representation for the input text. This is because the LLM is pretrained by text generation, where each token's embedding is used to predict its next token. In other words, the LLM's output embedding focuses on capturing the local and near-future semantic, rather than the semantic of the global context.
+
+\(\bullet\)**Objective**. To address the above problem, we propose **LLaRA** (LLMs adapted for retrieval) for the retrieval-oriented adaptation of LLMs. The LLM's text embedding is expected to realize two properties through the adaptation process.
+
+* The text embedding needs to represent the semantic of the global context.
+* The global context representation should facilitate the association between query and doc.
+
+\(\bullet\)**Pretext tasks**. With the above two objectives, we introduce two pretext tasks for LLaRA. The first one is called **EBAE** (Embedding-based Auto-Encoding), where the text embedding \(\mathbf{e}_{t}\) is used to make prediction for the input text itself. Particularly, if the original input text can be predicted by \(\mathbf{e}_{t}\), the global semantic about the input text must be fully encoded by \(\mathbf{e}_{t}\). The second one is **EBAR** (Embedding-based Auto-Regression), where the text embedding \(\mathbf{e}_{t}\) is used to predict the next sentence of the input text. Knowing that a relevant document is a plausible next-sentence for the query, e.g., the answer to a question, and the response to a conversation context, the association between query and document can be established by making representations for such a semantic.
+
+\(\bullet\)**Text Embedding**. The LLM is prompted by two different templates to generate the text embeddings for EBAE and EBAR (Figure 1). For EBAE, the LLM is prompted by the template: "[Placeholder for input]__The original sentence:\(\_\)\(\langle\)s\(\rangle\)", where the text embedding is generated as:
+
+\[\mathbf{e}_{t}^{\alpha}\leftarrow\text{LLaMA}(T,\text{SELF},\langle\text{s} \rangle)[-1]. \tag{4}\]
+
+Here, "SELF" stands for the prompt of EBAE: "The original sentence:". For EBAR, the LLM is prompted by the template: "[Placeholder for input]__The next sentence:\(\_\)\(\langle\)s\(\rangle\)", based on which the text embedding is generated as:
+
+\[\mathbf{e}_{t}^{\beta}\leftarrow\text{LLaMA}(T,\text{NEXT},\langle\text{s} \rangle)[-1], \tag{5}\]
+
+In this place, "NEXT" stands for the prompt of EBAR: "The next sentence:".
+
+The direct computation of \(\mathbf{e}_{t}^{\alpha}\) and \(\mathbf{e}_{t}^{\beta}\) will result in a big waste of cost, because the input text \(T\) is processed for two times. To solve this problem, we propose to compute \(\mathbf{e}_{t}^{\alpha}\) and \(\mathbf{e}_{t}^{\beta}\) in one pass. Particularly, the prompts of EBAE and EBAR are merged into one joint prompt for LLM: "[Placeholder for input]__SELF_\(\langle\)s\(\rangle\)_NEXT_\(\langle\)s\(\rangle\)". Because the two text embeddings need to be computed independently, we modify the attention mask for the conventional casual language modeling, where "SELF_\(\langle\)s\(\rangle\)" and "NEXT_\(\langle\)s\(\rangle\)" are mutually invisible (Figure 2). Now, the output embeddings of the first and second \(\langle\)s\(\rangle\) tokens are used for \(\mathbf{e}_{t}^{\alpha}\) and \(\mathbf{e}_{t}^{\beta}\), respectively. Given that the input text \(T\) will take the majority of length of the joint prompt, such a processing will save almost 50% of the cost compared with the direct computation.
+
+\(\bullet\)**Training objective**. As introduced, the text embeddings of LLaRA are to capture the global semantic of the input text itself and the next sentence of the input text. In this place, we propose a simple but effective training objective which will transform the text embeddings as global semantic representers. Theoretically, we argue that _if one embedding is able to accurately predict the tokens for a specific context all by itself_, the embedding must be a strong representer of the global semantic for the corresponding context.
+
+Based on this basic principle, the training of text embedding is formulated as a multi-class classification problem, where the text embedding is linearly projected for the prediction of the tokens within the target context. The objective function for the above problem is derived as:
+
+\[\min.\sum_{t\in\mathcal{T}}\frac{\exp{(\mathbf{e}^{T}\mathbf{W}_{t})}}{\sum_{v\in V} \exp{(\mathbf{e}^{T}\mathbf{W}_{v})}}. \tag{6}\]
+
+In this place, \(\mathbf{W}\in\mathbb{R}^{|V|\times d}\) is the linear projection matrix, and \(V\) is the vocabulary space. \(\mathcal{T}\) stands for the collection of tokens of the input text itself or the next sentence, depending on the processing of \(\mathbf{e}_{t}^{\alpha}\) and \(\mathbf{e}_{t}^{\beta}\), respectively. The above training objective turns out to be simple but effective. It can be easily realized on top of the existing training pipeline of language modeling.
+
+## 4 Experimental Study
+
+### Settings
+
+The experimental study is performed to verify the effectiveness of LLaRA, especially its impact on retrieval accuracy after fine-tuning and its generality across different scenarios. With such objectives, we use MS MARCO Nguyen et al. (2016) as our fine-tuning dataset, as make evaluation for the passage retrieval and document retrieval task. To evaluate the model's generality, we also take advantage of BEIR benchmark Thakur et al. (2021), which
+
+Figure 2: The attention mask for LLaRA
+
+covers a diverse variety of retrieval scenarios, such as question answering, fact verification, entity retrieval, duplication detection, etc. The fine-tuned model from MS MARCO is directly transferred for its zero-shot evaluation on BEIR.
+
+\(\bullet\)**Training**. LLaRA is applied to the LLaMA-2-7B (base) model. It is performed based on the unlabeled corpus of Wikipedia curated by DPR (Karpukhin et al., 2020). We perform 10,000 steps of LLaRA adaptation in total, with a batch size of 256, a sequence length of 1024, and a learning rate of 1e-5. LLaRA is fine-tuned following the procedure presented by RepLLaMA (Ma et al., 2023): it leverages LoRA (Hu et al., 2021) for the parameter efficient training of LLM, and simply makes use of the ANN hard negatives (Xiong et al., 2020) for the contrastive learning of the embedding model.
+
+### Analysis
+
+The evaluation results about the passage and document retrieval on MS MARCO, and the zero-shot retrieval on BEIR benchmark are shown with Table 1, 2, and 3, respectively. We make comparison with a wide variety of baseline methods, including the representative dense retrievers based on pre-trained language models, e.g., ANCE (Xiong et al., 2020), RocketQA (Ren et al., 2021), GTR (Ni et al., 2021), RetroMAE (Liu and Shao, 2022), SimLM (Wang et al., 2022), and the conventional BM25-based sparse retriever (Lin et al., 2021). We also introduce the latest methods leveraging LLMs as the backbone encoder, including CPT (Neelakantan et al., 2022), SGPT (Muennighoff, 2022), RepLLaMA (Ma et al., 2023).
+
+The primary observations are presented as follows. First of all, LLaRA achieves the top retrieval performance in every evaluation scenario. Remarkably, it results in a MRR@10 of 43.1 on MS MARCO passage retrieval, a MRR@100 of 47.5 on document retrieval, and an average NDCG@10 of 55.1. Such performances are even higher than most of the re-ranking results from the cross-encoders (Zhuang et al., 2023; Nogueira et al., 2019; Thakur et al., 2021). Besides, compared with its closest baseline, RepLLaMA (making direct use of LLaMA while following the same fine-tuning recipe), LLaRA leads to +1.9% of MRR@10 on MS MARCO passage retrieval, +1.9% of MRR@100 on MS MARCO document retrieval, and +1.0% of NDCG@10 on BEIR zero-shot retrieval. Such notable and consistent empirical gains validate that the LLM's text embedding capability has been substantially improved thanks to the adaptation from LLaRA.
+
+We have the following observations for each specific scenario. First of all, MS MARCO passage retrieval (Table 1) used to be the most widely referenced benchmarks in information retrieval. For
+
+\begin{table}
+\begin{tabular}{l|c|c|c|c} \hline \hline
+**Method** & **Size** & **Fine-Tuning** & **MRR@10** & **R@1000** \\ \hline BM25 (Lin et al., 2021) & – & – & 18.4 & 85.3 \\ ANCE (Xiong et al., 2020) & 125M & hard negative & 33.0 & 95.9 \\ ADORE (Zhan et al., 2021) & 110M & hard negative & 34.7 & - \\ Condenser (Gao and Callan, 2021) & 110M & hard negative & 33.8 & 96.1 \\ coCondenser (Gao and Callan, 2022) & 110M & hard negative & 38.2 & 98.4 \\ TAS-B (Hofstatter et al., 2021) & 55M & knowledge distill & 36.0 & 97.9 \\ RocketQAv2 (Ren et al., 2021) & – & knowledge distill & 38.8 & 98.1 \\ AR2+SimANS (Zhou et al., 2022) & 110M & knowledge distill & 40.9 & 98.7 \\ GTR-XXL (Ni et al., 2021) & 4.8B & – & 38.8 & 99.0 \\ SimLM (Wang et al., 2022) & 110M & hard negative & 39.1 & 98.6 \\ SimLM+distill (Wang et al., 2022) & 110M & knowledge distill & 41.1 & 98.7 \\ RetroMAE (Liu and Shao, 2022) & 110M & hard negative & 39.3 & 98.8 \\ RetroMAE+distill (Liu and Shao, 2022) & 110M & knowledge distill & 41.6 & 98.8 \\ RepLLaMA (Ma et al., 2023) & 7B & hard negative & 41.2 & 99.4 \\ OpenAI-Ada-002 (Neelakantan et al., 2022) & – & – & 34.4 & 98.6 \\ \hline LLaRA & 7B & hard negative & **43.1** & **99.5** \\ \hline \hline \end{tabular}
+\end{table}
+Table 1: MS MARCO passage retrieval.
+
+the past few years, its state-of-the-art performances were dramatically improved by a series of competitive baselines, thanks to the major improvements on pre-trained language models and fine-tuning methods. With the utilization of LLMs, the newly proposed dense retrievers brought in another big step-forward. It should be noted that LLaRA was simply fine-tuned by hard negative sampling. It is quite likely that the reported performance can be further improved if more advanced fine-tuning methods can be utilized in the future. Compared with the BERT-based alternatives, e.g., RetroMAE and SimLM, the switch of backbone encoder brings forth almost +4% gains on MRR@10. Such a dramatic improvement indicates the great potential of applying LLMs for dense retrieval.
+
+The same observation is made for the document retrieval task of MS MARCO (Table 2). The LLM-based retrievers bring forth superior empirical performances, where LLaRA results in more than +5% MRR@100 improvements over the previous BERT-based methods. In fact, document retrieval is a direct advantage of using LLM-based as the backbone encoder, given the significantly expanded context length of LLMs, e.g., 4K for LLaMA-2.
+
+According to the zero-shot evaluation results on BEIR benchmark (Thakur et al., 2021), the generality of retriever is another obvious advantage of using LLM-based backbone encoder. Previously, it was widely observed that dense retrievers struggled to handle zero-shot scenarios, despite their competitive performances in the supervised settings
+
+\begin{table}
+\begin{tabular}{l|c|c|c|c|c} \hline \hline
+**Method** & **Size** & **Fine-Tuning** & **MRR@100** & **R@100** \\ \hline BM25 (Lin et al., 2021) & – & – & 27.7 & 80.9 \\ PROP (Ma et al., 2021a) & 110M & – & 39.4 & 88.4 \\ B-PROP (Ma et al., 2021b) & 110M & – & 39.5 & 88.3 \\ COIL (Gao et al., 2021) & 110M & hard negative & 39.7 & - \\ ANCE (first-p) (Xiong et al., 2020) & 125M & hard negative & 37.7 & 89.3 \\ ANCE (max-p) (Xiong et al., 2020) & 125M & hard negative & 38.4 & 90.6 \\ ADORE (Zhan et al., 2021) & 110M & hard negative & 40.5 & 91.9 \\ COSTA (Ma et al., 2022) & 110M & hard negative & 42.2 & 91.9 \\ RepLAMA (Ma et al., 2023) & 7B & hard negative & 45.6 & - \\ \hline LLaRA & 7B & hard negative & **47.5** & **93.1** \\ \hline \hline \end{tabular}
+\end{table}
+Table 2: MS MARCO document retrieval
+
+\begin{table}
+\begin{tabular}{l|c|c|c|c|c|c|c|c} \hline \hline
+**Method** & BM25 & BERT & GTR-XXL & CPT-XL & Ada-2 & SGPT & RepLLaMA & LLaRA \\ \hline
+**Size** & – & 110M & 4.8B & 175B & – & 5.8B & 7B & 7B \\ \hline T-COVID & 59.5 & 61.5 & 50.1 & 64.9 & 81.3 & 87.3 & 84.7 & 85.3 \\ NFCorpus & 32.2 & 26.0 & 34.2 & 40.7 & 35.8 & 36.2 & 37.8 & 37.2 \\ NQ & 30.6 & 46.7 & 56.8 & – & 48.2 & 52.4 & 62.4 & 63.9 \\ HotpotQA & 63.3 & 48.8 & 59.9 & 68.8 & 65.4 & 59.3 & 68.5 & 70.2 \\ FiQA & 23.6 & 25.2 & 46.7 & 51.2 & 41.1 & 37.2 & 45.8 & 45.8 \\ ArguAna & 39.7 & 26.5 & 54.0 & 43.5 & 56.7 & 51.4 & 48.6 & 55.6 \\ Touche & 44.2 & 25.9 & 25.6 & 29.1 & 28.0 & 25.4 & 30.5 & 34.5 \\ Quora & 78.9 & 78.7 & 89.2 & 63.8 & 87.6 & 84.6 & 86.8 & 87.8 \\ DBPedia & 31.8 & 31.4 & 40.8 & 43.2 & 40.2 & 39.9 & 43.7 & 45.1 \\ SCIDOCS & 14.1 & 11.3 & 16.1 & – & 18.6 & 19.7 & 18.1 & 17.2 \\ FEVER & 65.1 & 68.2 & 74.0 & 77.5 & 77.3 & 78.3 & 83.4 & 83.1 \\ C-FEVER & 16.5 & 18.7 & 26.7 & 22.3 & 23.7 & 30.5 & 31.0 & 27.6 \\ SciFact & 67.9 & 53.3 & 66.2 & 75.4 & 73.6 & 74.7 & 75.6 & 75.7 \\ \hline AVERAGE & 43.7 & 40.1 & 49.3 & – & 52.1 & 52.1 & 55.1 & **56.1** \\ \hline \hline \end{tabular}
+\end{table}
+Table 3: Zero-shot retrieval on BEIR benchmark. (The performances are measured by NDCG@10)(Thakur et al., 2021; Ni et al., 2021). For many of the evaluation tasks in BEIR benchmark, the BERT-based methods were even much worse than the naive BM25-based sparse retriever (Thakur et al., 2021). However, by making the switch to the LLM-based backbone encoder, dense retriever's zero-shot performances can be improved by a big margin. Notably, with the substantially expanded model size, all large-scale baselines, such as GTR-XXL, CPT-XL, Ada-002, SGPT, RepLLaMA, are able to outperform BM25 in most of the situations. Besides, compared with the BERT baseline, LLaRA achieves a much better performance in every individual task, which finally results in a remarkable improvement of +16% NDCG@10 in terms of the average performance.
+
+## 5 Conclusion
+
+In this paper, we present LLaRA, a novel approach which aims to make LLMs a better foundation for dense retrieval by improving their text embedding capability. LLaRA is made up of two pretext tasks, EBAE and EBAR. These two tasks collaborate to transform the LLM's text embedding into a representer of the global context, which facilitate the semantic matching between the query and its relevant target. As a post-hoc adaptation for a well-pretrained LLM, LLaRA is not only effective but also simple to realize. It can be conducted purely based on the unlabeled corpora and fully compatible with the existing training pipeline of language modeling. The effectiveness of LLaRA is verified based on comprehensive experimental studies, where the accuracy and generality of the LLM-based retriever can be substantially improved, leading to the state-of-the-art performances in both supervised and zero-shot evaluation scenario.
+
+## References
+
+* T. Brown, B. Mann, N. Ryder, M. Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, et al. (2020)Language models are few-shot learners. Advances in neural information processing systems33, pp. 1877-1901. Cited by: SS1.
+* A. Chowdhery, S. Narang, J. Devlin, M. Bosma, G. Mishra, A. Roberts, P. Barham, H. W. Chung, C. Sutton, S. Gehrmann, et al. (2023)Palm: scaling language modeling with pathways. Journal of Machine Learning Research24 (240), pp. 1-113. Cited by: SS1.
+* H. W. Chung, L. Hou, S. Longpre, B. Zoph, Y. Tay, W. Fedus, Y. Li, X. Wang, M. Dehghani, S. Brahma, et al. (2022)Scaling instruction-finetuned language models. arXiv preprint arXiv:2210.11416. Cited by: SS1.
+* J. Devlin, M. Chang, K. Lee, and K. Toutanova (2019)BERT: pre-training of deep bidirectional transformers for language understanding. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, pp. 4171-4186. Cited by: SS1.
+* L. Gao and J. Callan (2021)ConDenser: a pre-training architecture for dense retrieval. arXiv preprint arXiv:2104.08253. Cited by: SS1.
+* L. Gao, Z. Dai, and J. Callan (2021)Coil: revisit exact lexical match in information retrieval with contextualized inverted list. arXiv preprint arXiv:2104.07186. Cited by: SS1.
+* S. Hofstatter, S. Lin, J. Yang, J. Lin, and A. Hanbury (2021)Efficiently teaching an effective dense retriever with balanced topic aware sampling. In SIGIR, pp. 113-122. Cited by: SS1.
+* E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, and W. Chen (2021)Lora: low-rank adaptation of large language models. arXiv preprint arXiv:2106.09685. Cited by: SS1.
+* G. Izacard, M. Caron, L. Hosseini, S. Riedel, P. Bojanowski, A. Joulin, and E. Grave (2021)Unsupervised dense information retrieval with contrastive learning. arXiv preprint arXiv:2112.09118. Cited by: SS1.
+* V. Karpukhin, B. Oguz, S. Min, P. Lewis, L. Wu, S. Edunov, D. Chen, and W. Yih (2020)Dense passage retrieval for open-domain question answering. arXiv preprint arXiv:2004.04906. Cited by: SS1.
+* J. Lin, X. Ma, S. Lin, J. Yang, R. Pradeep, and R. Nogueira (2021)Pyserini: a python toolkit for reproducible information retrieval research with sparse and dense representations. In Proceedings of the 44th International ACM SIGIR Conference on Research and Development in Information Retrieval, pp. 2356-2362.
+
+Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Mandar Joshi, Danqi Chen, Omer Levy, Mike Lewis, Luke Zettlemoyer, and Veselin Stoyanov. 2019. Roberta: A robustly optimized BERT pretraining approach. _CoRR_, abs/1907.11692.
+* Liu and Shao (2022) Zheng Liu and Yingxia Shao. 2022. Retromae: Pre-training retrieval-oriented transformers via masked auto-encoder. _arXiv preprint arXiv:2205.12035_.
+* Liu et al. (2023) Zheng Liu, Shitao Xiao, Yingxia Shao, and Zhao Cao. 2023. Retromae-2: Duplex masked auto-encoder for pre-training retrieval-oriented language models. In _Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 2635-2648.
+* Lu et al. (2020) Wenhao Lu, Jian Jiao, and Ruofei Zhang. 2020. Twin-bert: Distilling knowledge to twin-structured compressed bert models for large-scale retrieval. In _Proceedings of the 29th ACM International Conference on Information & Knowledge Management_, pages 2645-2652.
+* Ma et al. (2022) Xinyu Ma, Jiafeng Guo, Ruqing Zhang, Yixing Fan, and Xueqi Cheng. 2022. Pre-train a discriminative text encoder for dense retrieval via contrastive span prediction. In _Proceedings of the 45th International ACM SIGIR Conference on Research and Development in Information Retrieval_, pages 848-858.
+* Ma et al. (2021a) Xinyu Ma, Jiafeng Guo, Ruqing Zhang, Yixing Fan, Xiang Ji, and Xueqi Cheng. 2021a. Prop: Pre-training with representative words prediction for ad-hoc retrieval. In _Proceedings of the 14th ACM international conference on web search and data mining_, pages 283-291.
+* Ma et al. (2021b) Xinyu Ma, Jiafeng Guo, Ruqing Zhang, Yixing Fan, Yingyan Li, and Xueqi Cheng. 2021b. B-prop: bootstrapped pre-training with representative words prediction for ad-hoc retrieval. In _Proceedings of the 44th International ACM SIGIR Conference on Research and Development in Information Retrieval_, pages 1513-1522.
+* Ma et al. (2023) Xueguang Ma, Liang Wang, Nan Yang, Furu Wei, and Jimmy Lin. 2023. Fine-tuning llama for multi-stage text retrieval. _arXiv preprint arXiv:2310.08319_.
+* Muennighoff (2022) Niklas Muennighoff. 2022. Sgpt: Gpt sentence embeddings for semantic search. _arXiv preprint arXiv:2202.08904_.
+* Neelakantan et al. (2022) Arvind Neelakantan, Tao Xu, Raul Puri, Alec Radford, Jesse Michael Han, Jerry Tworek, Qiming Yuan, Nikolas Tezak, Jong Wook Kim, Chris Hallacy, et al. 2022. Text and code embeddings by contrastive pre-training. _arXiv preprint arXiv:2201.10005_.
+* Nguyen et al. (2016) Tri Nguyen, Mir Rosenberg, Xia Song, Jianfeng Gao, Saurabh Tiwary, Rangan Majumder, and Li Deng. 2016. Ms marco: A human generated machine reading comprehension dataset. _choice_, 2640:660.
+* Ni et al. (2021) Jianmo Ni, Chen Qu, Jing Lu, Zhuyun Dai, Gustavo Hernandez Abrego, Ji Ma, Vincent Y Zhao, Yi Luan, Keith B Hall, Ming-Wei Chang, et al. 2021. Large dual encoders are generalizable retrievers. _arXiv preprint arXiv:2112.07899_.
+* Nogueira et al. (2019) Rodrigo Nogueira, Wei Yang, Kyunghyun Cho, and Jimmy Lin. 2019. Multi-stage document ranking with bert. _arXiv preprint arXiv:1910.14424_.
+* Raffel et al. (2020) Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and Peter J Liu. 2020. Exploring the limits of transfer learning with a unified text-to-text transformer. _The Journal of Machine Learning Research_, 21(1):5485-5551.
+* Ren et al. (2021) Ruiyang Ren, Yingqi Qu, Jing Liu, Wayne Xin Zhao, Qiaoqiao She, Hua Wu, Haifeng Wang, and Ji-Rong Wen. 2021. RocketqaX2: A joint training method for dense passage retrieval and passage re-ranking. _arXiv preprint arXiv:2110.07367_.
+* Thakur et al. (2021) Nandan Thakur, Nils Reimers, Andreas Ruckle, Abhishek Srivastava, and Iryna Gurevych. 2021. Beir: A heterogenous benchmark for zero-shot evaluation of information retrieval models. _arXiv preprint arXiv:2104.08663_.
+* Touvron et al. (2023) Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov, Soumya Batra, Prajwal Bhargava, Shruti Bhosale, et al. 2023. Llama 2: Open foundation and fine-tuned chat models, 2023. _URL https://arxiv. org/abs/2307.09288_.
+* Wang et al. (2022a) Liang Wang, Nan Yang, Xiaolong Huang, Binxing Jiao, Linjun Yang, Daxin Jiang, Rangan Majumder, and Furu Wei. 2022a. Simlm: Pre-training with representation bottleneck for dense passage retrieval. _arXiv preprint arXiv:2207.02578_.
+* Wang et al. (2022b) Liang Wang, Nan Yang, Xiaolong Huang, Binxing Jiao, Linjun Yang, Daxin Jiang, Rangan Majumder, and Furu Wei. 2022b. Text embeddings by weakly-supervised contrastive pre-training. _arXiv preprint arXiv:2212.03533_.
+* Wei et al. (2021) Jason Wei, Maarten Bosma, Vincent Y Zhao, Kelvin Guu, Adams Wei Yu, Brian Lester, Nan Du, Andrew M Dai, and Quoc V Le. 2021. Finetuned language models are zero-shot learners. _arXiv preprint arXiv:2109.01652_.
+* Xiao et al. (2023) Shitao Xiao, Zheng Liu, Peitian Zhang, and Niklas Muennighof. 2023. C-pack: Packaged resources to advance general chinese embedding. _arXiv preprint arXiv:2309.07597_.
+* Xiong et al. (2020) Lee Xiong, Chenyan Xiong, Ye Li, Kwok-Fung Tang, Jialin Liu, Paul Bennett, Junaid Ahmed, and Arnold Overwijk. 2020. Approximate nearest neighbor negative contrastive learning for dense text retrieval. _arXiv preprint arXiv:2007.00808_.
+* Zhou et al. (2020)Jingtao Zhan, Jiaxin Mao, Yiqun Liu, Jiafeng Guo, Min Zhang, and Shaoping Ma. 2021. Optimizing dense retrieval model training with hard negatives. In _SIGIR_, pages 1503-1512.
+* Zhang et al. (2023) Xin Zhang, Zehan Li, Yanzhao Zhang, Dingkun Long, Pengjun Xie, Meishan Zhang, and Min Zhang. 2023. Language models are universal embedders. _arXiv preprint arXiv:2310.08232_.
+* Zhou et al. (2022) Kun Zhou, Yeyun Gong, Xiao Liu, Wayne Xin Zhao, Yelong Shen, Anlei Dong, Jingwen Lu, Rangan Majumder, Ji-Rong Wen, Nan Duan, et al. 2022. Simans: Simple ambiguous negatives sampling for dense text retrieval. _arXiv preprint arXiv:2210.11773_.
+* Zhuang et al. (2023) Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui, Ji Ma, Jing Lu, Jianmo Ni, Xuanhui Wang, and Michael Bendersky. 2023. Rankt5: Fine-tuning t5 for text ranking with ranking losses. In _Proceedings of the 46th International ACM SIGIR Conference on Research and Development in Information Retrieval_, pages 2308-2313.

@@ -1,0 +1,26 @@
+{
+    "2312.15503v1": {
+        "paper_id": "2312.15503v1",
+        "abs_url": "https://arxiv.org/abs/2312.15503v1",
+        "pdf_url": "https://arxiv.org/pdf/2312.15503v1.pdf",
+        "supp_url": null,
+        "src_website": "ArXiv",
+        "download_name": "2312.15503v1_Making_Large_Language_Models_A_Better_Foundation_For_Dense_Retrieval.pdf",
+        "title": "Making Large Language Models A Better Foundation For Dense Retrieval",
+        "year": null,
+        "paper_venue": null,
+        "authors": [
+            "Chaofan Li",
+            "Zheng Liu",
+            "Shitao Xiao",
+            "Yingxia Shao"
+        ],
+        "abstract": "In this paper, we propose a novel approach, called LLaRA (LLM adapted for dense RetrievAl), which works as a post-hoc adaptation of LLM for the dense retrieval application. LLaRA consists of two pretext tasks: EBAE (Embedding-Based Auto-Encoding) and EBAR (Embedding-Based Auto-Regression), where the text embeddings from LLM are used to reconstruct the tokens for the input sentence and predict the tokens for the next sentence, respectively. LLaRA turns out to be simple, lightweight, and highly effective. It is applied to adapt LLaMA-2-7B (base) on the Wikipedia corpus, where it substantially improves the model's fine-tuned performances on a variety of dense retrieval benchmarks, like MSMARCO and BEIR. Our model and code will be made publicly available at BGE repository.",
+        "comments": "",
+        "official_code_urls": [
+            "https://github.com/flagopen/flagembedding"
+        ],
+        "pwc_page_url": "https://paperswithcode.com/paper/making-large-language-models-a-better",
+        "bibtex": "@misc{li2023making,\n      title={Making Large Language Models A Better Foundation For Dense Retrieval}, \n      author={Chaofan Li and Zheng Liu and Shitao Xiao and Yingxia Shao},\n      year={2023},\n      eprint={2312.15503},\n      archivePrefix={arXiv},\n      primaryClass={cs.CL}\n}"
+    }
+}
